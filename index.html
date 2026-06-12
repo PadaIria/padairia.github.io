@@ -464,9 +464,18 @@ async function pageInicio(){
    ============================================================ */
 let CART=[];
 async function pageVendas(){
-  const produtos=(await q("produtos")).filter(p=>p.ativo!==false);
-  const clientes=await q("clientes");
+  const [produtos0,clientes,vendas]=await Promise.all([q("produtos"),q("clientes"),q("vendas")]);
+  const produtos=produtos0.filter(p=>p.ativo!==false);
   CART=[];
+  const ini=new Date();ini.setHours(0,0,0,0);
+  const hoje=(vendas||[]).filter(v=>new Date(v.data_venda)>=ini).sort((a,b)=>new Date(b.data_venda)-new Date(a.data_venda));
+  const totalHoje=hoje.reduce((a,v)=>a+Number(v.total||0),0);
+  const nomePag={avista:"Dinheiro",pix:"Pix",cartao:"Cartão",fiado:"Fiado",encomenda:"Encomenda"};
+  const listaHoje=hoje.length?hoje.map(v=>{
+    const hora=new Date(v.data_venda).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+    const tag=v.encomenda_id?' <span class="badge">📋 encomenda</span>':'';
+    return `<div class="cart-line"><div class="grow"><b>${money(v.total)}</b>${tag}<div class="s muted">${hora} · ${nomePag[v.forma_pagamento]||v.forma_pagamento||"—"}</div></div></div>`;
+  }).join(""):'<p class="muted">Nenhuma venda hoje ainda.</p>';
   $("#main").innerHTML=`
    <div class="page-head"><h1 class="page-title">Nova venda 🛒</h1></div>
    <div class="panel" style="margin-top:0"><h3>Toque nos produtos</h3>
@@ -478,7 +487,8 @@ async function pageVendas(){
         </div>`).join(""):'<p class="muted">Cadastre produtos primeiro.</p>'}
      </div>
    </div>
-   <div class="panel"><h3>Carrinho</h3><div id="cartBox"></div></div>`;
+   <div class="panel"><h3>Carrinho</h3><div id="cartBox"></div></div>
+   <div class="panel"><h3>📋 Vendas de hoje — ${hoje.length} ${hoje.length===1?"venda":"vendas"} · ${money(totalHoje)}</h3>${listaHoje}</div>`;
   window._produtos=produtos; window._clientes=clientes;
   document.querySelectorAll(".pdv-prod").forEach(el=>el.onclick=()=>addCart(el.getAttribute("data-id")));
   renderCart();
