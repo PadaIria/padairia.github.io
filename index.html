@@ -308,7 +308,10 @@ async function startApp(user){
   $("#app").style.display="block";
   await ensureEmpresa();
   buildNav();
-  go("inicio");
+  let last="inicio";try{last=localStorage.getItem("padaIria_page")||"inicio"}catch(e){}
+  const ids=NAV.map(n=>n.id);
+  go(ids.includes(last)?last:"inicio");
+  if(!window._encPoll) window._encPoll=setInterval(pollEncomendas,12000);
 }
 async function ensureEmpresa(){
   let {data}=await sb.from("empresa").select("*").eq("owner_id",USER.id).maybeSingle();
@@ -355,6 +358,7 @@ function openMore(){
 let CURRENT="inicio";
 function go(id){
   CURRENT=id;
+  try{localStorage.setItem("padaIria_page",id)}catch(e){}
   document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active",el.getAttribute("data-go")===id));
   document.querySelectorAll(".bn-item").forEach(el=>el.classList.toggle("active",el.getAttribute("data-go")===id));
   $("#main").innerHTML='<div class="loading">Carregando…</div>';
@@ -788,8 +792,24 @@ const COLS=[["recebido","Recebido","📥"],["preparacao","Em preparação","👩
 const STATUS_ORDER=COLS.map(c=>c[0]);
 function nextStatus(s){const i=STATUS_ORDER.indexOf(s);return i>=0&&i<STATUS_ORDER.length-1?STATUS_ORDER[i+1]:null;}
 function encTotal(e){return Number(e.total||0)+Number(e.taxa_entrega||0);}
+function encSig(list){return list.map(e=>e.id+":"+e.status).sort().join("|");}
+async function pollEncomendas(){
+  if(!sb||!USER) return;                                   // ainda não logado
+  if(CURRENT!=="encomendas") return;                       // só atualiza nesta tela
+  if($("#modalRoot").innerHTML.trim()!=="") return;        // modal aberto: não atrapalha
+  if(_drag) return;                                        // arrastando um cartão: não atrapalha
+  const r=await sb.from("encomendas").select("id,status").eq("owner_id",USER.id);
+  const list=r.data||[];
+  if(encSig(list)===window._encSig) return;                // nada mudou
+  const antes=new Set(window._encIds||[]);
+  const novas=list.filter(e=>!antes.has(e.id)).length;
+  await pageEncomendas();                                  // re-renderiza (atualiza a assinatura)
+  if(novas>0) toast("🔔 "+(novas===1?"Nova encomenda recebida!":novas+" novas encomendas!"));
+}
+window.pollEncomendas=pollEncomendas;
 async function pageEncomendas(){
   const enc=(await sb.from("encomendas").select("*").eq("owner_id",USER.id).order("data_desejada")).data||[];
+  window._encSig=encSig(enc); window._encIds=enc.map(e=>e.id);
   const link=`${location.origin}${location.pathname.replace(/index\.html$/,"")}encomendas.html?loja=${EMPRESA.slug}`;
   $("#main").innerHTML=`
    <div class="page-head"><h1 class="page-title">Encomendas 📋</h1>
