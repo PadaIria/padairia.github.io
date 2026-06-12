@@ -840,6 +840,16 @@ async function pollEncomendas(){
   window._encSig=sig;
 }
 window.pollEncomendas=pollEncomendas;
+function testarSom(){
+  unlockAudio();
+  bipNovaEncomenda();
+  setTimeout(()=>{
+    if(!SOM_ALERTA) toast("🔇 O som está desligado (SOM_ALERTA=false)");
+    else if(_audioCtx && _audioCtx.state==="running") toast("🔔 Som ativado! Se não ouviu, veja o volume/modo silencioso do aparelho.");
+    else toast("⚠️ O navegador bloqueou o som. Toque novamente neste botão.");
+  },300);
+}
+window.testarSom=testarSom;
 async function pageEncomendas(){
   const enc=(await sb.from("encomendas").select("*").eq("owner_id",USER.id).order("data_desejada")).data||[];
   window._encSig=encSig(enc); window._encIds=enc.map(e=>e.id);
@@ -848,6 +858,7 @@ async function pageEncomendas(){
    <div class="page-head"><h1 class="page-title">Encomendas 📋</h1>
      <div style="display:flex;gap:8px">
        <button class="btn sm" onclick="formEncomendaManual()">+ Encomenda</button>
+       <button class="btn sm ghost" onclick="testarSom()">🔔 Testar som</button>
        <button class="btn sm ghost" onclick="copiarLink('${link}')">🔗 Link</button></div></div>
    <div class="kanban">${COLS.map(([st,lbl,ic])=>`
      <div class="kcol" data-col="${st}" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="dropCard(event,'${st}')">
@@ -861,14 +872,46 @@ async function pageEncomendas(){
      </div>`).join("")}</div>
    <p class="muted" style="margin-top:14px;font-size:.85rem">💡 Use o botão verde pra avançar a etapa, ou arraste o cartão. Clientes pedem pelo link público.</p>`;
 }
-async function avancarEtapa(id,status){await sb.from("encomendas").update({status}).eq("id",id);toast("Movida para "+COLS.find(c=>c[0]===status)[1]);go("encomendas");}
+async function encomendaVirouVenda(encId){
+  // não conta duas vezes: se já existe venda dessa encomenda, sai
+  const ja=(await sb.from("vendas").select("id").eq("encomenda_id",encId).limit(1)).data;
+  if(ja&&ja.length) return;
+  const e=(await sb.from("encomendas").select("*").eq("id",encId).single()).data;
+  if(!e) return;
+  const itens=(await sb.from("encomenda_itens").select("*").eq("encomenda_id",encId)).data||[];
+  const tot=encTotal(e);
+  const {data:venda,error}=await sb.from("vendas").insert({
+    owner_id:USER.id, cliente_id:e.cliente_id||null, encomenda_id:encId,
+    forma_pagamento:"encomenda", subtotal:Number(e.total||0), total:tot,
+    valor_pago:tot, troco:0, status:"pago"
+  }).select().single();
+  if(error){toast("Entregue, mas não virou venda: "+error.message);return;}
+  for(const it of itens){
+    await sb.from("venda_itens").insert({
+      venda_id:venda.id, produto_id:it.produto_id, produto_nome:it.produto_nome,
+      quantidade:it.quantidade, preco_unitario:it.preco_unitario,
+      subtotal:Number(it.preco_unitario||0)*Number(it.quantidade||0)
+    });
+  }
+  toast("Encomenda entregue e contabilizada como venda ✅");
+}
+async function avancarEtapa(id,status){
+  await sb.from("encomendas").update({status}).eq("id",id);
+  if(status==="entregue") await encomendaVirouVenda(id);
+  else toast("Movida para "+COLS.find(c=>c[0]===status)[1]);
+  go("encomendas");
+}
 window.avancarEtapa=avancarEtapa;
 let _drag=null;
 function dragCard(e,id){_drag=id;e.target.classList.add("dragging");}
 window.dragCard=dragCard;
 async function dropCard(e,status){
   e.preventDefault();document.querySelectorAll(".kcol").forEach(c=>c.classList.remove("over"));
-  if(!_drag)return;await sb.from("encomendas").update({status}).eq("id",_drag);_drag=null;go("encomendas");
+  if(!_drag)return;
+  const id=_drag; _drag=null;
+  await sb.from("encomendas").update({status}).eq("id",id);
+  if(status==="entregue") await encomendaVirouVenda(id);
+  go("encomendas");
 }
 window.dropCard=dropCard;
 async function verEncomenda(id){
