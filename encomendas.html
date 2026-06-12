@@ -152,16 +152,17 @@ async function enviar(){
   const nome=document.getElementById("fNome").value.trim();
   if(!nome){alert("Informe seu nome");return;}
   const btn=document.getElementById("btnNext");btn.disabled=true;btn.textContent="Enviando…";
-  const {data:enc,error}=await sb.from("encomendas").insert({
-    owner_id:LOJA.owner_id,cliente_nome:nome,
+  const encId=crypto.randomUUID();
+  const {error}=await sb.from("encomendas").insert({
+    id:encId,owner_id:LOJA.owner_id,cliente_nome:nome,
     telefone:document.getElementById("fTel").value,whatsapp:document.getElementById("fZap").value,
     endereco:document.getElementById("fEnd").value,data_desejada:document.getElementById("fData").value||null,
     observacoes:document.getElementById("fObs").value,total:total(),status:"recebido"
-  }).select().single();
+  });
   if(error){alert("Erro ao enviar: "+error.message);btn.disabled=false;btn.textContent="Enviar encomenda";return;}
-  for(const [id,c] of Object.entries(CART)){
-    await sb.from("encomenda_itens").insert({encomenda_id:enc.id,produto_id:id,produto_nome:c.nome,quantidade:c.qtd,preco_unitario:c.preco});
-  }
+  const itens=Object.entries(CART).map(([id,c])=>({encomenda_id:encId,produto_id:id,produto_nome:c.nome,quantidade:c.qtd,preco_unitario:c.preco}));
+  const {error:errItens}=await sb.from("encomenda_itens").insert(itens);
+  if(errItens){alert("Erro ao salvar itens: "+errItens.message);btn.disabled=false;btn.textContent="Enviar encomenda";return;}
   document.getElementById("bar").style.display="none";
   document.getElementById("wrap").innerHTML=`<div class="msg"><div class="big">🎉</div><h2>Encomenda enviada!</h2>
     <p style="color:var(--soft);margin-top:8px">Obrigada, ${nome}! A ${LOJA.nome} recebeu seu pedido de ${money(total())} e vai confirmar com você.</p>
