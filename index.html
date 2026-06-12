@@ -331,16 +331,16 @@ function $$all(s){return [...document.querySelectorAll(s)];}
 const NAV=[
   {id:"inicio",   ico:"🏠", label:"Início"},
   {id:"vendas",   ico:"🛒", label:"Vendas"},
+  {id:"encomendas",ico:"📋",label:"Encomendas"},
   {id:"produtos", ico:"🥖", label:"Produtos"},
   {id:"precificacao", ico:"🏷️", label:"Preço"},
   {id:"estoque",  ico:"📦", label:"Estoque"},
   {id:"clientes", ico:"👥", label:"Clientes"},
   {id:"fiado",    ico:"💳", label:"Fiado"},
-  {id:"encomendas",ico:"📋",label:"Encomendas"},
   {id:"relatorios",ico:"📊",label:"Relatórios"},
   {id:"perfil",   ico:"⚙️", label:"Perfil"},
 ];
-const MOBILE_NAV=["inicio","vendas","produtos","encomendas","relatorios"];
+const MOBILE_NAV=["inicio","vendas","encomendas","produtos","relatorios"];
 function buildNav(){
   $("#sidebar").innerHTML=NAV.map(n=>`<div class="nav-item" data-go="${n.id}"><span class="ico">${n.ico}</span>${n.label}</div>`).join("");
   $("#bottomnav").innerHTML=MOBILE_NAV.map(id=>{const n=NAV.find(x=>x.id===id);return `<div class="bn-item" data-go="${n.id}"><span class="ico">${n.ico}</span>${n.label}</div>`}).join("")

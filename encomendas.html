@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Encomendas — Padaria da Tia Iria</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -158,22 +161,28 @@ async function enviar(){
   const nome=document.getElementById("fNome").value.trim();
   if(!nome){alert("Informe seu nome");return;}
   const btn=document.getElementById("btnNext");btn.disabled=true;btn.textContent="Enviando…";
-  const encId=uuid();
-  const {error}=await sb.from("encomendas").insert({
-    id:encId,owner_id:LOJA.owner_id,cliente_nome:nome,
-    telefone:document.getElementById("fTel").value,whatsapp:document.getElementById("fZap").value,
-    endereco:document.getElementById("fEnd").value,data_desejada:document.getElementById("fData").value||null,
-    observacoes:document.getElementById("fObs").value,total:total(),status:"recebido"
-  });
-  if(error){alert("Erro ao enviar: "+error.message);btn.disabled=false;btn.textContent="Enviar encomenda";return;}
-  const itens=Object.entries(CART).map(([id,c])=>({encomenda_id:encId,produto_id:id,produto_nome:c.nome,quantidade:c.qtd,preco_unitario:c.preco}));
-  const {error:errItens}=await sb.from("encomenda_itens").insert(itens);
-  if(errItens){alert("Erro ao salvar itens: "+errItens.message);btn.disabled=false;btn.textContent="Enviar encomenda";return;}
-  document.getElementById("bar").style.display="none";
-  document.getElementById("wrap").innerHTML=`<div class="msg"><div class="big">🎉</div><h2>Encomenda enviada!</h2>
-    <p style="color:var(--soft);margin-top:8px">Obrigada, ${nome}! A ${LOJA.nome} recebeu seu pedido de ${money(total())} e vai confirmar com você.</p>
-    <button class="btn" style="margin-top:22px;max-width:280px" onclick="novoPedido()">Fazer novo pedido</button>
-    ${LOJA.whatsapp?`<div><a href="https://wa.me/${LOJA.whatsapp.replace(/\D/g,"")}" style="display:inline-block;margin-top:16px;color:var(--green);font-weight:700">💬 Falar no WhatsApp</a></div>`:""}</div>`;
+  try{
+    const encId=uuid();
+    const {error}=await sb.from("encomendas").insert({
+      id:encId,owner_id:LOJA.owner_id,cliente_nome:nome,
+      telefone:document.getElementById("fTel").value,whatsapp:document.getElementById("fZap").value,
+      endereco:document.getElementById("fEnd").value,data_desejada:document.getElementById("fData").value||null,
+      observacoes:document.getElementById("fObs").value,total:total(),status:"recebido"
+    });
+    if(error) throw error;
+    const itens=Object.entries(CART).map(([id,c])=>({encomenda_id:encId,produto_id:id,produto_nome:c.nome,quantidade:c.qtd,preco_unitario:c.preco}));
+    const {error:errItens}=await sb.from("encomenda_itens").insert(itens);
+    if(errItens) throw errItens;
+    document.getElementById("bar").style.display="none";
+    document.getElementById("wrap").innerHTML=`<div class="msg"><div class="big">🎉</div><h2>Encomenda enviada!</h2>
+      <p style="color:var(--soft);margin-top:8px">Obrigada, ${nome}! A ${LOJA.nome} recebeu seu pedido de ${money(total())} e vai confirmar com você.</p>
+      <button class="btn" style="margin-top:22px;max-width:280px" onclick="novoPedido()">Fazer novo pedido</button>
+      ${LOJA.whatsapp?`<div><a href="https://wa.me/${LOJA.whatsapp.replace(/\D/g,"")}" style="display:inline-block;margin-top:16px;color:var(--green);font-weight:700">💬 Falar no WhatsApp</a></div>`:""}</div>`;
+  }catch(e){
+    const msg=(e&&(e.message||e.hint||e.details))||"Verifique sua internet e tente de novo.";
+    alert("Não consegui enviar a encomenda.\n\nDetalhe: "+msg);
+    btn.disabled=false;btn.textContent="Enviar encomenda";
+  }
 }
 function novoPedido(){CART={};render();window.scrollTo(0,0);}
 window.novoPedido=novoPedido;
