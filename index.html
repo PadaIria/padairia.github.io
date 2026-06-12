@@ -793,18 +793,51 @@ const STATUS_ORDER=COLS.map(c=>c[0]);
 function nextStatus(s){const i=STATUS_ORDER.indexOf(s);return i>=0&&i<STATUS_ORDER.length-1?STATUS_ORDER[i+1]:null;}
 function encTotal(e){return Number(e.total||0)+Number(e.taxa_entrega||0);}
 function encSig(list){return list.map(e=>e.id+":"+e.status).sort().join("|");}
+/* ---- Alerta sonoro de nova encomenda ---- */
+let SOM_ALERTA=true;            // troque para false se quiser desligar o som
+let _audioCtx=null;
+function unlockAudio(){
+  try{
+    if(!_audioCtx) _audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    if(_audioCtx.state==="suspended") _audioCtx.resume();
+  }catch(e){}
+}
+document.addEventListener("click",unlockAudio);
+document.addEventListener("touchstart",unlockAudio);
+function bipNovaEncomenda(){
+  if(!SOM_ALERTA) return;
+  try{
+    unlockAudio(); if(!_audioCtx) return;
+    const ctx=_audioCtx, t0=ctx.currentTime;
+    [880,1175].forEach((freq,i)=>{                         // dois toques "din-don"
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type="sine"; o.frequency.value=freq;
+      const t=t0+i*0.18;
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(0.3,t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.16);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t+0.18);
+    });
+  }catch(e){}
+}
 async function pollEncomendas(){
   if(!sb||!USER) return;                                   // ainda não logado
-  if(CURRENT!=="encomendas") return;                       // só atualiza nesta tela
-  if($("#modalRoot").innerHTML.trim()!=="") return;        // modal aberto: não atrapalha
-  if(_drag) return;                                        // arrastando um cartão: não atrapalha
   const r=await sb.from("encomendas").select("id,status").eq("owner_id",USER.id);
   const list=r.data||[];
-  if(encSig(list)===window._encSig) return;                // nada mudou
-  const antes=new Set(window._encIds||[]);
+  const sig=encSig(list);
+  if(window._encIds===undefined){                          // 1ª vez: só memoriza, sem alertar
+    window._encIds=list.map(e=>e.id); window._encSig=sig; return;
+  }
+  const antes=new Set(window._encIds);
   const novas=list.filter(e=>!antes.has(e.id)).length;
-  await pageEncomendas();                                  // re-renderiza (atualiza a assinatura)
-  if(novas>0) toast("🔔 "+(novas===1?"Nova encomenda recebida!":novas+" novas encomendas!"));
+  window._encIds=list.map(e=>e.id);                        // atualiza a memória antes de alertar
+  if(novas>0){ bipNovaEncomenda(); toast("🔔 "+(novas===1?"Nova encomenda recebida!":novas+" novas encomendas!")); }
+  // re-renderiza o quadro só se você estiver na tela de Encomendas e sem atrapalhar
+  if(CURRENT==="encomendas" && $("#modalRoot").innerHTML.trim()==="" && !_drag && sig!==window._encSig){
+    await pageEncomendas();
+  }
+  window._encSig=sig;
 }
 window.pollEncomendas=pollEncomendas;
 async function pageEncomendas(){
