@@ -395,9 +395,12 @@ async function pageInicio(){
   const itensMes=itens.filter(i=>within(i.vendas.data_venda,startMonth));
   const lucro=itensMes.reduce((a,i)=>a+((Number(i.preco_unitario)-(custoMap[i.produto_id]||0))*Number(i.quantidade)),0);
   const encPend=enc.filter(e=>e.status!=="entregue").length;
+  const baixoEstoque=produtos.filter(p=>Number(p.estoque_atual)<=Number(p.estoque_minimo)&&Number(p.estoque_minimo)>0);
 
   $("#main").innerHTML=`
-   <div class="page-head"><div><h1 class="page-title">Olá, Iria! 👋</h1><p class="muted">Resumo de hoje</p></div></div>
+   <div class="page-head"><div><h1 class="page-title">Olá, Iria! 👋</h1><p class="muted">Resumo de hoje</p></div>
+     <button class="btn sm" onclick="fecharCaixa()">🧾 Fechar caixa</button></div>
+   ${baixoEstoque.length?`<div class="panel" style="border-left:4px solid var(--jam)"><h3>⚠️ Estoque baixo</h3><div class="s muted" style="margin-bottom:6px">${baixoEstoque.length} produto(s) precisando de reposição:</div><div>${baixoEstoque.map(p=>`<span class="badge warn" style="margin:2px 4px 0 0;display:inline-block">${esc(p.nome)} · ${num(p.estoque_atual)} un</span>`).join("")}</div><button class="btn sm" style="margin-top:10px" onclick="go('estoque')">Ver estoque</button></div>`:""}
    <div class="cards">
      <div class="stat"><div class="lbl">Vendas hoje</div><div class="val">${money(dia)}</div></div>
      <div class="stat"><div class="lbl">Semana</div><div class="val">${money(semana)}</div></div>
@@ -453,9 +456,6 @@ async function pageInicio(){
   if(topP.length>2){const worst=Object.values(prodAgg).sort((a,b)=>a.qtd-b.qtd)[0];ins.push(["📉",`<b>${esc(worst.nome)}</b> é o que menos vende — avalie promoção ou tirar do cardápio.`]);}
   // cliente mais valioso
   if(topC[0])ins.push(["💎",`<b>${esc(topC[0].nome)}</b> é seu cliente mais valioso: ${money(topC[0].t)} em ${topC[0].n} compras.`]);
-  // estoque baixo
-  const baixo=produtos.filter(p=>Number(p.estoque_atual)<=Number(p.estoque_minimo)&&Number(p.estoque_minimo)>0);
-  if(baixo.length)ins.push(["⚠️",`<b>${baixo.length}</b> produto(s) com estoque baixo: ${baixo.slice(0,3).map(p=>esc(p.nome)).join(", ")}.`]);
   $("#insights").innerHTML=ins.length?ins.map(([i,t])=>`<div class="insight"><span class="ico">${i}</span><span>${t}</span></div>`).join(""):`<p class="muted">Os insights aparecem conforme você registra vendas.</p>`;
 }
 
@@ -474,7 +474,7 @@ async function pageVendas(){
   const listaHoje=hoje.length?hoje.map(v=>{
     const hora=new Date(v.data_venda).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
     const tag=v.encomenda_id?' <span class="badge">📋 encomenda</span>':'';
-    return `<div class="cart-line"><div class="grow"><b>${money(v.total)}</b>${tag}<div class="s muted">${hora} · ${nomePag[v.forma_pagamento]||v.forma_pagamento||"—"}</div></div></div>`;
+    return `<div class="cart-line"><div class="grow"><b>${money(v.total)}</b>${tag}<div class="s muted">${hora} · ${nomePag[v.forma_pagamento]||v.forma_pagamento||"—"}</div></div><button class="btn sm ghost" onclick="cancelarVenda('${v.id}')">Cancelar</button></div>`;
   }).join(""):'<p class="muted">Nenhuma venda hoje ainda.</p>';
   $("#main").innerHTML=`
    <div class="page-head"><h1 class="page-title">Nova venda 🛒</h1></div>
@@ -570,6 +570,47 @@ async function salvarVenda(total){
   CART=[];go(forma==="fiado"?"fiado":"vendas");
 }
 window.salvarVenda=salvarVenda;
+async function cancelarVenda(id){
+  if(!confirm("Cancelar esta venda? Ela será apagada e os itens que saíram do estoque voltam."))return;
+  toast("Cancelando…");
+  // devolve ao estoque com base nas movimentações reais (vendas de balcão deram baixa; encomendas não)
+  const movs=(await sb.from("movimentacoes_estoque").select("*").eq("venda_id",id)).data||[];
+  for(const m of movs){
+    if(!m.produto_id)continue;
+    const p=(await sb.from("produtos").select("estoque_atual").eq("id",m.produto_id).single()).data;
+    if(p){ await sb.from("produtos").update({estoque_atual:(Number(p.estoque_atual)||0)+Math.abs(Number(m.quantidade)||0)}).eq("id",m.produto_id); }
+  }
+  await sb.from("movimentacoes_estoque").delete().eq("venda_id",id);
+  await sb.from("contas_receber").delete().eq("venda_id",id);
+  await sb.from("venda_itens").delete().eq("venda_id",id);
+  await sb.from("vendas").delete().eq("id",id);
+  toast("Venda cancelada e estoque devolvido ✅");
+  go("vendas");
+}
+window.cancelarVenda=cancelarVenda;
+async function fecharCaixa(){
+  const vendas=await q("vendas");
+  const ini=new Date();ini.setHours(0,0,0,0);
+  const hoje=(vendas||[]).filter(v=>new Date(v.data_venda)>=ini);
+  const nome={avista:"Dinheiro",pix:"Pix",cartao:"Cartão",fiado:"Fiado",encomenda:"Encomenda"};
+  const porForma={};
+  hoje.forEach(v=>{const f=v.forma_pagamento||"outro";porForma[f]=porForma[f]||{n:0,t:0};porForma[f].n++;porForma[f].t+=Number(v.total||0);});
+  const total=hoje.reduce((a,v)=>a+Number(v.total||0),0);
+  const recebido=hoje.filter(v=>v.forma_pagamento!=="fiado").reduce((a,v)=>a+Number(v.total||0),0);
+  const fiado=hoje.filter(v=>v.forma_pagamento==="fiado").reduce((a,v)=>a+Number(v.total||0),0);
+  const linhas=Object.entries(porForma).map(([f,d])=>`<div style="display:flex;justify-content:space-between;padding:6px 0"><span>${nome[f]||f} <span class="muted">(${d.n})</span></span><b>${money(d.t)}</b></div>`).join("")||'<p class="muted">Nenhuma venda hoje ainda.</p>';
+  const data=new Date().toLocaleDateString("pt-BR");
+  openModal(`<div class="modal-head"><h2>🧾 Fechamento — ${data}</h2><button class="icon-btn" onclick="closeModal()">✕</button></div>
+   <div class="panel" style="margin:0">${linhas}
+     <div style="display:flex;justify-content:space-between;border-top:1px solid var(--line);margin-top:8px;padding-top:8px"><b>Total do dia</b><b>${money(total)}</b></div></div>
+   <div class="cards" style="margin-top:12px">
+     <div class="stat"><div class="lbl">Entrou no caixa</div><div class="val sm" style="color:var(--green)">${money(recebido)}</div></div>
+     <div class="stat"><div class="lbl">Ficou em fiado</div><div class="val sm" style="color:var(--jam)">${money(fiado)}</div></div>
+     <div class="stat"><div class="lbl">Nº de vendas</div><div class="val sm">${hoje.length}</div></div>
+   </div>
+   <button class="btn full ghost" style="margin-top:12px" onclick="closeModal()">Fechar</button>`);
+}
+window.fecharCaixa=fecharCaixa;
 
 /* ============================================================
    PÁGINA: PRODUTOS
@@ -1159,8 +1200,9 @@ async function pagePerfil(){
 async function salvarEmpresa(){
   const obj={nome:$("#eNome").value,logo_url:$("#eLogo").value,telefone:$("#eTel").value,whatsapp:$("#eZap").value,
     endereco:$("#eEnd").value,instagram:$("#eInsta").value,facebook:$("#eFace").value,aceita_encomendas:$("#eAceita").checked};
-  const r=await sb.from("empresa").update(obj).eq("id",EMPRESA.id);
-  if(r.error)return toast("Erro: "+r.error.message);
+  const {data,error}=await sb.from("empresa").update(obj).eq("id",EMPRESA.id).select();
+  if(error)return toast("Erro: "+error.message);
+  if(!data||!data.length)return toast("Não foi salvo: falta permissão de edição no banco (rode o SQL de permissão).");
   EMPRESA={...EMPRESA,...obj};
   $$all(".brand").forEach(b=>b.innerHTML=(EMPRESA.nome||"Padaria da Tia Iria").replace(/Iria(?![\s\S]*Iria)/i,'<span>Iria</span>'));
   toast("Perfil salvo ✅");
